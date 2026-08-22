@@ -10,6 +10,7 @@
     <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
 
     <application
+        android:name=".NexusApplication"
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:label="Nexus Prank"
@@ -20,6 +21,7 @@
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:exported="true"
+            android:immersive="true"
             android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
