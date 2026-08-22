@@ -1,7 +1,9 @@
 #!/bin/sh
 set -eu
 
-alembic upgrade head
+if [ "${RUN_MIGRATIONS:-1}" = "1" ]; then
+  alembic upgrade head
+fi
 
 exec uvicorn device_manager.api:app \
   --host "${HOST:-0.0.0.0}" \
