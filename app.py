@@ -9,7 +9,6 @@ from device_manager.database import Base, create_session_factory, make_engine
 from device_manager.repository import DeviceRepository
 from device_manager.schemas import DeviceCreate, DeviceUpdate
 
-
 INITIAL_DEVICES = (
     DeviceCreate(name="Serwer Główny", device_type="Server", status="Aktywny"),
     DeviceCreate(name="Router Biurowy", device_type="Network", status="Aktywny"),
