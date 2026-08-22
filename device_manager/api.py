@@ -8,9 +8,17 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from .agent_service import AgentNotRegisteredError, AgentService
 from .database import Base, create_session_factory, make_engine
 from .repository import DeviceRepository
-from .schemas import DeviceCreate, DeviceRead, DeviceUpdate, HealthRead
+from .schemas import (
+    AgentHeartbeat,
+    AgentRegistration,
+    DeviceCreate,
+    DeviceRead,
+    DeviceUpdate,
+    HealthRead,
+)
 from .service import DeviceNotFoundError, DeviceService
 
 
@@ -29,7 +37,7 @@ def create_app(database_url: str | None = None, *, create_schema: bool = False) 
 
     app = FastAPI(
         title="Device Manager API",
-        version="2.2.0",
+        version="2.3.0",
         lifespan=lifespan,
     )
 
@@ -40,6 +48,9 @@ def create_app(database_url: str | None = None, *, create_schema: bool = False) 
     def get_service(session: Session = Depends(get_session)) -> DeviceService:
         return DeviceService(DeviceRepository(session))
 
+    def get_agent_service(session: Session = Depends(get_session)) -> AgentService:
+        return AgentService(DeviceRepository(session))
+
     @app.exception_handler(DeviceNotFoundError)
     async def device_not_found_handler(
         _request: Request,
@@ -48,6 +59,16 @@ def create_app(database_url: str | None = None, *, create_schema: bool = False) 
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"detail": f"device {exc.device_id} not found"},
+        )
+
+    @app.exception_handler(AgentNotRegisteredError)
+    async def agent_not_registered_handler(
+        _request: Request,
+        exc: AgentNotRegisteredError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": f"agent {exc.agent_id} not registered"},
         )
 
     @app.get("/health", response_model=HealthRead)
@@ -99,6 +120,20 @@ def create_app(database_url: str | None = None, *, create_schema: bool = False) 
     ) -> Response:
         service.delete_device(device_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.post("/agents/register", response_model=DeviceRead)
+    def register_agent(
+        payload: AgentRegistration,
+        service: AgentService = Depends(get_agent_service),
+    ):
+        return service.register(payload)
+
+    @app.post("/agents/heartbeat", response_model=DeviceRead)
+    def heartbeat_agent(
+        payload: AgentHeartbeat,
+        service: AgentService = Depends(get_agent_service),
+    ):
+        return service.heartbeat(payload)
 
     return app
 
