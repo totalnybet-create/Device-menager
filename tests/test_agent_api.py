@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 from device_manager.api import create_app
 
-
 ENROLLMENT = "test-enrollment-secret"
 
 
