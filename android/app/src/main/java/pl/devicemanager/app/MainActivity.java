@@ -2,15 +2,20 @@ package pl.devicemanager.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Bundle;
+import android.os.Message;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.webkit.CookieManager;
 import android.webkit.SslErrorHandler;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -27,6 +32,7 @@ import java.util.Locale;
 public final class MainActivity extends Activity {
     private static final String PREFS = "device_manager_android";
     private static final String PREF_SERVER = "server_base_url";
+    private static final String DEFAULT_SERVER = "https://device-manager-live-2lbomn.v2.appdeploy.ai";
 
     private SharedPreferences preferences;
     private WebView webView;
@@ -40,12 +46,11 @@ public final class MainActivity extends Activity {
         buildUi();
         configureWebView();
 
-        baseUrl = preferences.getString(PREF_SERVER, null);
+        baseUrl = preferences.getString(PREF_SERVER, DEFAULT_SERVER);
         if (baseUrl == null || baseUrl.isBlank()) {
-            showServerDialog(true);
-        } else {
-            loadPanel();
+            baseUrl = DEFAULT_SERVER;
         }
+        loadPanel();
     }
 
     private void buildUi() {
@@ -97,8 +102,8 @@ public final class MainActivity extends Activity {
         setContentView(root);
     }
 
-    private void configureWebView() {
-        WebSettings settings = webView.getSettings();
+    private void applySecureWebSettings(WebView target, boolean popup) {
+        WebSettings settings = target.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(false);
@@ -106,6 +111,16 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(popup);
+        settings.setSupportMultipleWindows(popup);
+
+        CookieManager cookies = CookieManager.getInstance();
+        cookies.setAcceptCookie(true);
+        cookies.setAcceptThirdPartyCookies(target, true);
+    }
+
+    private void configureWebView() {
+        applySecureWebSettings(webView, true);
         WebView.setWebContentsDebuggingEnabled(false);
 
         webView.setWebViewClient(new WebViewClient() {
@@ -148,6 +163,65 @@ public final class MainActivity extends Activity {
                 }
             }
         });
+
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onCreateWindow(
+                    WebView view,
+                    boolean isDialog,
+                    boolean isUserGesture,
+                    Message resultMsg
+            ) {
+                WebView popup = new WebView(MainActivity.this);
+                applySecureWebSettings(popup, true);
+                popup.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(
+                            WebView child,
+                            WebResourceRequest request
+                    ) {
+                        Uri uri = request.getUrl();
+                        return uri == null || !"https".equalsIgnoreCase(uri.getScheme());
+                    }
+
+                    @Override
+                    public void onReceivedSslError(
+                            WebView child,
+                            SslErrorHandler handler,
+                            SslError error
+                    ) {
+                        handler.cancel();
+                    }
+                });
+
+                Dialog authDialog = new Dialog(MainActivity.this);
+                authDialog.setContentView(popup);
+                authDialog.setOnDismissListener(ignored -> {
+                    popup.stopLoading();
+                    popup.destroy();
+                });
+                popup.setWebChromeClient(new WebChromeClient() {
+                    @Override
+                    public void onCloseWindow(WebView window) {
+                        authDialog.dismiss();
+                    }
+                });
+                authDialog.show();
+                Window window = authDialog.getWindow();
+                if (window != null) {
+                    window.setLayout(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                    );
+                }
+
+                WebView.WebViewTransport transport =
+                        (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(popup);
+                resultMsg.sendToTarget();
+                return true;
+            }
+        });
     }
 
     private void showServerDialog(boolean required) {
@@ -163,7 +237,7 @@ public final class MainActivity extends Activity {
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         input.setSingleLine(true);
-        input.setHint("https://device-manager.example.pl");
+        input.setHint(DEFAULT_SERVER);
         if (baseUrl != null) {
             input.setText(baseUrl);
             input.setSelection(input.length());
@@ -305,6 +379,7 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         if (webView != null) {
             webView.stopLoading();
+            webView.setWebChromeClient(null);
             webView.setWebViewClient(null);
             webView.destroy();
         }
