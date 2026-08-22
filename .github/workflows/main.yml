@@ -1,14 +1,28 @@
-name: Build App
-on: [push]
+name: Device Manager CI
+
+on:
+  push:
+    branches: ["main", "work/**"]
+  pull_request: {}
+
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Run App Check
-      run: |
-        python app.py
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile check
+        run: python -m compileall app.py tests
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Smoke run
+        run: python app.py
