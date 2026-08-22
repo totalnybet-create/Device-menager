@@ -10,15 +10,15 @@
     <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
 
     <application
-        android:name=".NexusApplication"
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:label="Nexus Prank"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="false"
+        android:enableOnBackInvokedCallback="true">
         <activity
-            android:name=".MainActivity"
+            android:name=".GuardActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:exported="true"
             android:immersive="true"
