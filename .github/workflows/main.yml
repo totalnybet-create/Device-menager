@@ -9,6 +9,21 @@ jobs:
   verify:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: device_manager
+          POSTGRES_PASSWORD: device_manager
+          POSTGRES_DB: device_manager
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U device_manager -d device_manager"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,11 +43,20 @@ jobs:
       - name: JavaScript syntax check
         run: node --check device_manager/panel/panel.js
 
-      - name: Migration upgrade and rollback
+      - name: SQLite migration upgrade and rollback
         env:
           DATABASE_URL: sqlite:///${{ runner.temp }}/migration-test.db
         run: |
           alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+
+      - name: PostgreSQL migration upgrade and rollback
+        env:
+          DATABASE_URL: postgresql+psycopg://device_manager:device_manager@127.0.0.1:5432/device_manager
+        run: |
+          alembic upgrade head
+          python -c "from sqlalchemy import text; from device_manager.database import engine; c=engine.connect(); assert c.execute(text('SELECT 1')).scalar_one() == 1; c.close()"
           alembic downgrade base
           alembic upgrade head
 
@@ -55,3 +79,30 @@ jobs:
 
       - name: Admin CLI smoke
         run: python -m device_manager.admin --help
+
+      - name: Docker build
+        run: docker build -t device-manager:ci .
+
+      - name: Docker deployment smoke
+        shell: bash
+        run: |
+          container=$(docker run -d --name device-manager-ci -p 18000:8000 -e DEVICE_MANAGER_AGENT_ENROLLMENT_TOKEN=ci-enrollment device-manager:ci)
+          cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          ready=0
+          for _ in {1..20}; do
+            if curl -fsS http://127.0.0.1:18000/health >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            docker logs "$container"
+            exit 1
+          fi
+
+          curl -fsS http://127.0.0.1:18000/ready | grep -q 'ready'
+          curl -fsS http://127.0.0.1:18000/panel | grep -q 'Panel urządzeń'
