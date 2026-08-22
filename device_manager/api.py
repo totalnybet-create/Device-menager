@@ -25,6 +25,7 @@ from .schemas import (
     DeviceUpdate,
     HealthRead,
 )
+from .security import AttemptLimiter
 from .service import DeviceNotFoundError, DeviceService
 
 
@@ -40,6 +41,7 @@ def create_app(
         "DEVICE_MANAGER_AGENT_ENROLLMENT_TOKEN"
     )
     bearer = HTTPBearer(auto_error=False)
+    auth_limiter = AttemptLimiter(max_failures=5, window_seconds=60.0)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -48,6 +50,7 @@ def create_app(
         app.state.engine = engine
         app.state.session_factory = session_factory
         app.state.enrollment_token = configured_enrollment_token
+        app.state.auth_limiter = auth_limiter
         yield
         engine.dispose()
 
@@ -70,10 +73,26 @@ def create_app(
     def get_auth_service(session: Session = Depends(get_session)) -> AuthService:
         return AuthService(AuthRepository(session))
 
+    def limiter_key(request: Request, scope: str) -> str:
+        host = request.client.host if request.client else "unknown"
+        return f"{scope}:{host}"
+
+    def reject_if_limited(request: Request, scope: str) -> str:
+        key = limiter_key(request, scope)
+        if request.app.state.auth_limiter.blocked(key):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="too many failed authentication attempts",
+                headers={"Retry-After": "60"},
+            )
+        return key
+
     def get_current_user(
+        request: Request,
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
         auth: AuthService = Depends(get_auth_service),
     ) -> UserPrincipal:
+        key = reject_if_limited(request, "user-auth")
         if credentials is None or credentials.scheme.lower() != "bearer":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -83,11 +102,13 @@ def create_app(
 
         principal = auth.authenticate_user(credentials.credentials)
         if principal is None:
+            request.app.state.auth_limiter.register_failure(key)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid credentials",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        request.app.state.auth_limiter.clear(key)
         return principal
 
     def require_permission(permission: str) -> Callable:
@@ -233,14 +254,17 @@ def create_app(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="agent enrollment is not configured",
             )
+        key = reject_if_limited(request, "agent-enrollment")
         if not x_agent_enrollment_token or not secrets.compare_digest(
             x_agent_enrollment_token,
             expected,
         ):
+            request.app.state.auth_limiter.register_failure(key)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid enrollment credential",
             )
+        request.app.state.auth_limiter.clear(key)
 
         device = service.register(payload)
         issued = auth.issue_agent_token(device.id)
@@ -254,10 +278,12 @@ def create_app(
     @app.post("/agents/heartbeat", response_model=DeviceRead)
     def heartbeat_agent(
         payload: AgentHeartbeat,
+        request: Request,
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
         service: AgentService = Depends(get_agent_service),
         auth: AuthService = Depends(get_auth_service),
     ):
+        key = reject_if_limited(request, "agent-auth")
         if credentials is None or credentials.scheme.lower() != "bearer":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -267,11 +293,13 @@ def create_app(
 
         authenticated = auth.authenticate_agent(credentials.credentials)
         if authenticated is None:
+            request.app.state.auth_limiter.register_failure(key)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid agent credential",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        request.app.state.auth_limiter.clear(key)
         _credential, credential_device = authenticated
         if credential_device.agent_id != str(payload.agent_id):
             auth.audit_agent_action(
