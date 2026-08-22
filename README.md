@@ -1,18 +1,19 @@
-# Device Manager — Full Pakiet v2.4
+# Device Manager — Full Pakiet v2.5
 
-Aktualny etap projektu: trwały system zarządzania urządzeniami z REST API, jawnym agentem telemetrycznym oraz rozdzielonym uwierzytelnianiem użytkowników i agentów.
+Aktualny etap projektu: pełny checkpoint funkcjonalny — trwała baza, REST API, jawny agent telemetryczny, auth/RBAC oraz responsywny panel operatorski.
 
-## Funkcje v2.4
+## Funkcje v2.5
 - SQLite + SQLAlchemy 2.x + Pydantic 2.x + Alembic,
 - pełny CRUD urządzeń przez FastAPI,
 - jawny agent: rejestracja, heartbeat, retry/backoff i lokalny bufor offline,
-- użytkownicy API z rolami `admin`, `operator`, `read-only`,
-- osobne tokeny maszynowe agentów,
-- tokeny przechowywane w bazie wyłącznie jako SHA-256 hash,
-- enrollment agentów chroniony sekretem z konfiguracji środowiska,
-- audyt operacji bezpieczeństwa i mutacji,
-- limit powtarzających się nieudanych prób uwierzytelnienia,
-- CI: migracje, pełne testy i smoke CLI/API/agent/admin.
+- role `admin`, `operator`, `read-only`,
+- osobne tokeny użytkowników i agentów; w DB wyłącznie SHA-256 hash,
+- enrollment agentów chroniony sekretem środowiskowym,
+- audyt operacji i limiter błędnych prób auth,
+- panel webowy: lista, wyszukiwanie, filtr statusu, statystyki, create/edit/delete zgodnie z rolą,
+- loading/error/empty states, mobile layout i podstawowa accessibility,
+- panel bez zewnętrznych bibliotek/CDN, z CSP i security headers,
+- CI: migracje, pełne testy, JavaScript syntax check i smoke CLI/API/panel/agent/admin.
 
 ## Instalacja i baza
 ```bash
@@ -22,30 +23,35 @@ alembic upgrade head
 
 Domyślna baza to `device_manager.db`. Można ustawić `DEVICE_MANAGER_DB_PATH` albo pełny `DATABASE_URL`.
 
-## Utworzenie użytkownika API
-Po migracji utwórz użytkownika lokalnym CLI:
+## Utworzenie użytkownika
 ```bash
 python -m device_manager.admin create-user --name admin --role admin
 ```
 
-Dostępne role:
-- `read-only` — odczyt urządzeń,
+Role:
+- `read-only` — odczyt,
 - `operator` — odczyt, tworzenie i aktualizacja,
-- `admin` — pełny CRUD wraz z usuwaniem.
+- `admin` — pełny CRUD.
 
-CLI pokazuje bearer token tylko przy utworzeniu. W bazie zapisywany jest wyłącznie jego SHA-256 hash. Token należy przechowywać poza repozytorium i poza logami.
+Token jest pokazany tylko przy utworzeniu. W bazie znajduje się wyłącznie jego hash.
 
-## API
-Uruchomienie:
+## Uruchomienie API i panelu
 ```bash
 python -m uvicorn device_manager.api:app --host 127.0.0.1 --port 8000
 ```
+
+Panel: `/panel`.
+
+Panel prosi o bearer token użytkownika i trzyma go tylko w pamięci bieżącej karty — nie zapisuje go do `localStorage`, `sessionStorage` ani cookie. Wszystkie operacje panelu przechodzą przez ten sam backendowy RBAC co bezpośrednie API.
 
 Publiczne endpointy diagnostyczne:
 - `GET /health`
 - `GET /ready`
 
-Endpointy zarządzania wymagają `Authorization: Bearer <USER_TOKEN>`:
+Profil zalogowanego użytkownika:
+- `GET /me`
+
+Endpointy zarządzania:
 - `GET /devices`
 - `GET /devices/{id}`
 - `POST /devices`
@@ -55,12 +61,10 @@ Endpointy zarządzania wymagają `Authorization: Bearer <USER_TOKEN>`:
 OpenAPI: `/docs` i `/openapi.json`.
 
 ## Enrollment i agent
-Serwer musi mieć ustawiony sekret enrollmentu, np.:
+Na serwerze ustaw sekret enrollmentu:
 ```bash
 export DEVICE_MANAGER_AGENT_ENROLLMENT_TOKEN='wygenerowany-losowy-sekret'
 ```
-
-Ten sekret służy tylko do rejestracji. Po poprawnym enrollment API wydaje agentowi osobny losowy token maszynowy; agent zapisuje go lokalnie i używa do heartbeatów.
 
 Rejestracja:
 ```bash
@@ -73,32 +77,34 @@ Heartbeat:
 python -m device_manager.agent heartbeat --api http://127.0.0.1:8000
 ```
 
-Stan agenta trafia domyślnie do `~/.device-manager/`; katalog można zmienić przez `DEVICE_MANAGER_AGENT_STATE_DIR`. Agent nie instaluje ukrytej trwałości, nie wykonuje zdalnych poleceń i nie zbiera haseł, treści plików, MAC/IMEI.
+Agent przechowuje lokalny stan domyślnie w `~/.device-manager/`. Nie instaluje ukrytej trwałości, nie wykonuje zdalnych poleceń i nie zbiera haseł, treści plików, MAC/IMEI.
 
 ## Testy
 ```bash
 python -m unittest discover -s tests -v
+node --check device_manager/panel/panel.js
 ```
 
 ## Architektura
 - `device_manager/database.py` — engine/session,
-- `device_manager/models.py` — urządzenia, principals, credentials, audit,
-- `device_manager/repository.py` — persistence urządzeń,
+- `device_manager/models.py` — devices/principals/credentials/audit,
+- `device_manager/repository.py` — persistence,
 - `device_manager/service.py` — logika urządzeń,
-- `device_manager/auth.py` — tokeny, RBAC, credentiale agentów, audit,
-- `device_manager/security.py` — limiter błędnych prób auth,
-- `device_manager/api.py` — FastAPI i enforcement uprawnień,
+- `device_manager/auth.py` — tokeny/RBAC/audit,
+- `device_manager/security.py` — limiter auth,
+- `device_manager/api.py` — FastAPI, RBAC i hosting panelu,
+- `device_manager/panel/` — HTML/CSS/JS panelu bez third-party runtime,
 - `device_manager/agent_service.py` — rejestracja/heartbeat,
-- `device_manager/agent.py` — jawny agent telemetryczny,
-- `device_manager/admin.py` — lokalny bootstrap użytkowników,
-- `migrations/` — wersjonowany schemat bazy.
+- `device_manager/agent.py` — agent telemetryczny,
+- `device_manager/admin.py` — bootstrap użytkowników,
+- `migrations/` — wersjonowany schemat.
 
 ## Roadmapa
 - Krok 1: baza i modele — CI PASS.
 - Krok 2: service layer + FastAPI — CI PASS.
-- Krok 3: agent urządzeń — CI PASS.
-- Krok 4: auth, RBAC i bezpieczeństwo — aktualny checkpoint.
-- Krok 5: panel zarządzania.
+- Krok 3: agent — CI PASS.
+- Krok 4: auth/RBAC/security — CI PASS.
+- Krok 5: panel zarządzania — aktualny checkpoint.
 
-## Stan bezpieczeństwa
-Krok 4 zapewnia podstawowe uwierzytelnianie, least-privilege RBAC, rozdzielenie tożsamości człowiek/agent, audyt i lokalny limiter. Dla wdrożenia wielowęzłowego limiter powinien dodatkowo działać na współdzielonej warstwie gateway/Redis, a TLS powinien być terminowany przed API. Pełny gate produkcyjny następuje dopiero po Kroku 5 i końcowym audycie.
+## Stan przed finalnym gate
+Po Kroku 5 wykonujemy końcowy audyt produkcyjny: pełna regresja, migracje/rollback, bezpieczeństwo, responsywność, accessibility, performance, error handling i deployment smoke. Multi-worker production wymaga współdzielonego rate limitera/gateway oraz TLS przed API.
