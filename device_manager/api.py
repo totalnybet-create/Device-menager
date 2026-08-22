@@ -4,10 +4,12 @@ import os
 import secrets
 from collections.abc import Callable, Generator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -24,9 +26,24 @@ from .schemas import (
     DeviceRead,
     DeviceUpdate,
     HealthRead,
+    UserPrincipalRead,
 )
 from .security import AttemptLimiter
 from .service import DeviceNotFoundError, DeviceService
+
+
+PANEL_DIR = Path(__file__).with_name("panel")
+PANEL_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self'; "
+    "connect-src 'self'; "
+    "img-src 'self' data:; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'"
+)
 
 
 def create_app(
@@ -56,9 +73,18 @@ def create_app(
 
     app = FastAPI(
         title="Device Manager API",
-        version="2.4.0",
+        version="2.5.0",
         lifespan=lifespan,
     )
+    app.mount("/panel-assets", StaticFiles(directory=str(PANEL_DIR)), name="panel-assets")
+
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        return response
 
     def get_session(request: Request) -> Generator[Session, None, None]:
         with request.app.state.session_factory() as session:
@@ -151,6 +177,14 @@ def create_app(
             content={"detail": f"agent {exc.agent_id} not registered"},
         )
 
+    @app.get("/panel", include_in_schema=False)
+    def panel() -> FileResponse:
+        return FileResponse(
+            PANEL_DIR / "index.html",
+            media_type="text/html",
+            headers={"Content-Security-Policy": PANEL_CSP},
+        )
+
     @app.get("/health", response_model=HealthRead)
     def health() -> HealthRead:
         return HealthRead(status="ok")
@@ -165,6 +199,10 @@ def create_app(
                 detail="database unavailable",
             ) from exc
         return HealthRead(status="ready")
+
+    @app.get("/me", response_model=UserPrincipalRead)
+    def me(principal: UserPrincipal = Depends(get_current_user)) -> UserPrincipal:
+        return principal
 
     @app.get("/devices", response_model=list[DeviceRead])
     def list_devices(

@@ -25,6 +25,9 @@ jobs:
       - name: Compile check
         run: python -m compileall app.py device_manager tests migrations
 
+      - name: JavaScript syntax check
+        run: node --check device_manager/panel/panel.js
+
       - name: Migration upgrade and rollback
         env:
           DATABASE_URL: sqlite:///${{ runner.temp }}/migration-test.db
@@ -43,6 +46,9 @@ jobs:
 
       - name: API import smoke
         run: python -c "from device_manager.api import app; assert app.title == 'Device Manager API'"
+
+      - name: Panel asset smoke
+        run: python -c "from device_manager.api import PANEL_DIR; assert (PANEL_DIR / 'index.html').is_file(); assert (PANEL_DIR / 'panel.css').is_file(); assert (PANEL_DIR / 'panel.js').is_file()"
 
       - name: Agent CLI smoke
         run: python -m device_manager.agent --help
