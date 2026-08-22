@@ -97,6 +97,11 @@ class AgentRegistration(BaseModel):
         return value
 
 
+class AgentRegistrationResult(BaseModel):
+    device: DeviceRead
+    agent_token: str = Field(min_length=32)
+
+
 class AgentHeartbeat(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
