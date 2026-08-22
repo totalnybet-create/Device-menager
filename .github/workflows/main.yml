@@ -83,6 +83,7 @@ jobs:
 
       - name: Browser E2E — operator flows and responsive QA
         env:
+          PYTHONPATH: .
           E2E_ARTIFACT_DIR: ${{ runner.temp }}/e2e-artifacts
         run: python tests/e2e_panel.py
 
