@@ -3,8 +3,7 @@ name: Device Manager CI
 on:
   push:
     branches: ["main", "work/**"]
-  pull_request:
-    branches: ["main", "work/device-manager-full-packet"]
+  pull_request: {}
 
 jobs:
   verify:
