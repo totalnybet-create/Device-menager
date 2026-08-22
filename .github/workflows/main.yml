@@ -43,3 +43,6 @@ jobs:
 
       - name: API import smoke
         run: python -c "from device_manager.api import app; assert app.title == 'Device Manager API'"
+
+      - name: Agent CLI smoke
+        run: python -m device_manager.agent --help
