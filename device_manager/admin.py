@@ -5,7 +5,7 @@ import json
 
 from sqlalchemy.exc import IntegrityError
 
-from .auth import AuthRepository, AuthService, VALID_ROLES
+from .auth import VALID_ROLES, AuthRepository, AuthService
 from .database import SessionLocal
 
 
