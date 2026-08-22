@@ -1,4 +1,4 @@
-package: name='pl.siedlar.nexusprank' versionCode='2' versionName='1.1.0' platformBuildVersionName='15' platformBuildVersionCode='35' compileSdkVersion='35' compileSdkVersionCodename='15'
+package: name='pl.siedlar.nexusprank' versionCode='3' versionName='1.1.1' platformBuildVersionName='15' platformBuildVersionCode='35' compileSdkVersion='35' compileSdkVersionCodename='15'
 sdkVersion:'26'
 targetSdkVersion:'35'
 uses-permission: name='android.permission.INTERNET'
