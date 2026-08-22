@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>Device Manager</title>
+  <link rel="stylesheet" href="/panel-assets/panel.css">
+  <script src="/panel-assets/panel.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">DEVICE MANAGER</p>
+        <h1>Panel urządzeń</h1>
+      </div>
+      <div class="identity" id="identity" hidden>
+        <span id="identityName"></span>
+        <span class="role" id="identityRole"></span>
+        <button class="ghost" id="logoutBtn" type="button">Wyloguj</button>
+      </div>
+    </header>
+
+    <section class="login-card" id="loginCard" aria-labelledby="loginTitle">
+      <div>
+        <p class="eyebrow">BEZPIECZNY DOSTĘP</p>
+        <h2 id="loginTitle">Połącz z API</h2>
+        <p class="muted">Wklej token użytkownika. Token pozostaje tylko w pamięci tej karty i nie jest zapisywany w przeglądarce.</p>
+      </div>
+      <form id="loginForm" class="login-form">
+        <label for="tokenInput">Bearer token</label>
+        <div class="token-row">
+          <input id="tokenInput" name="token" type="password" autocomplete="off" required aria-describedby="loginHint">
+          <button class="primary" type="submit">Połącz</button>
+        </div>
+        <p id="loginHint" class="hint">Użytkownika i token utworzysz przez lokalne CLI administratora.</p>
+      </form>
+    </section>
+
+    <section id="dashboard" hidden>
+      <div class="stats" aria-label="Podsumowanie urządzeń">
+        <article><span>Wszystkie</span><strong id="totalCount">0</strong></article>
+        <article><span>Online</span><strong id="onlineCount">0</strong></article>
+        <article><span>Offline</span><strong id="offlineCount">0</strong></article>
+        <article><span>Agenty</span><strong id="agentCount">0</strong></article>
+      </div>
+
+      <div class="toolbar">
+        <label class="search-field" for="searchInput">
+          <span>Szukaj</span>
+          <input id="searchInput" type="search" placeholder="Nazwa, typ, host, status…" autocomplete="off">
+        </label>
+        <label class="select-field" for="statusFilter">
+          <span>Status</span>
+          <select id="statusFilter">
+            <option value="">Wszystkie</option>
+            <option value="online">Online</option>
+            <option value="offline">Offline</option>
+            <option value="aktywny">Aktywny</option>
+          </select>
+        </label>
+        <button class="primary" id="addBtn" type="button">+ Dodaj urządzenie</button>
+        <button class="ghost" id="refreshBtn" type="button">Odśwież</button>
+      </div>
+
+      <div class="status-line" id="statusLine" role="status" aria-live="polite"></div>
+      <section class="device-grid" id="deviceGrid" aria-label="Lista urządzeń"></section>
+      <section class="empty" id="emptyState" hidden>
+        <strong>Brak urządzeń</strong>
+        <span>Zmień filtr albo dodaj pierwsze urządzenie.</span>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="deviceDialog" aria-labelledby="dialogTitle">
+    <form id="deviceForm" method="dialog">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">URZĄDZENIE</p>
+          <h2 id="dialogTitle">Dodaj urządzenie</h2>
+        </div>
+        <button class="icon-btn" id="closeDialogBtn" type="button" aria-label="Zamknij">×</button>
+      </div>
+      <input id="deviceId" type="hidden">
+      <label>Nazwa<input id="deviceName" required maxlength="120"></label>
+      <label>Typ<input id="deviceType" required maxlength="64"></label>
+      <label>Status<input id="deviceStatus" required maxlength="32" value="Online"></label>
+      <div class="dialog-actions">
+        <button class="danger" id="deleteBtn" type="button" hidden>Usuń</button>
+        <span></span>
+        <button class="ghost" id="cancelBtn" type="button">Anuluj</button>
+        <button class="primary" type="submit">Zapisz</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="assertive" hidden></div>
+</body>
+</html>
