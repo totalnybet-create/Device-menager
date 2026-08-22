@@ -1,9 +1,15 @@
 (() => {
   "use strict";
 
+  const REQUEST_TIMEOUT_MS = 12000;
+
   let token = "";
   let principal = null;
   let devices = [];
+  let connectPending = false;
+  let mutationPending = false;
+  let loadGeneration = 0;
+  let toastTimer = null;
 
   const $ = (id) => document.getElementById(id);
   const loginCard = $("loginCard");
@@ -14,6 +20,8 @@
   const grid = $("deviceGrid");
   const emptyState = $("emptyState");
   const statusLine = $("statusLine");
+  const loginSubmit = $("loginForm").querySelector('button[type="submit"]');
+  const saveButton = form.querySelector('button[type="submit"]');
 
   function roleCan(permission) {
     const role = principal?.role;
@@ -27,40 +35,88 @@
   }
 
   async function api(path, options = {}) {
-    const response = await fetch(path, {
-      ...options,
-      headers: authHeaders(options.headers || {}),
-    });
-    if (response.status === 204) return null;
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = typeof body.detail === "string" ? body.detail : `Błąd HTTP ${response.status}`;
-      const error = new Error(message);
-      error.status = response.status;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(path, {
+        ...options,
+        signal: controller.signal,
+        headers: authHeaders(options.headers || {}),
+      });
+      if (response.status === 204) return null;
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = typeof body.detail === "string" ? body.detail : `Błąd HTTP ${response.status}`;
+        const error = new Error(message);
+        error.status = response.status;
+        throw error;
+      }
+      return body;
+    } catch (error) {
+      if (error.name === "AbortError") {
+        const timeoutError = new Error("Przekroczono limit czasu połączenia");
+        timeoutError.status = 0;
+        throw timeoutError;
+      }
       throw error;
+    } finally {
+      window.clearTimeout(timeout);
     }
-    return body;
   }
 
   function toast(message) {
     const node = $("toast");
+    if (toastTimer !== null) window.clearTimeout(toastTimer);
     node.textContent = message;
     node.hidden = false;
-    window.setTimeout(() => { node.hidden = true; }, 3200);
+    toastTimer = window.setTimeout(() => {
+      node.hidden = true;
+      toastTimer = null;
+    }, 3200);
   }
 
   function setBusy(message = "") {
     statusLine.textContent = message;
   }
 
-  function escapeText(value) {
-    const span = document.createElement("span");
-    span.textContent = value ?? "";
-    return span.innerHTML;
+  function setMutationBusy(busy) {
+    mutationPending = busy;
+    saveButton.disabled = busy;
+    $("deleteBtn").disabled = busy;
+    $("closeDialogBtn").disabled = busy;
+    $("cancelBtn").disabled = busy;
+    $("addBtn").disabled = busy;
+  }
+
+  function handleAuthenticatedError(prefix, error) {
+    if (error.status === 401 && principal) {
+      logout();
+      toast("Sesja wygasła. Wklej token ponownie.");
+      return;
+    }
+    toast(`${prefix}: ${error.message}`);
   }
 
   function statusClass(status) {
     return String(status || "").toLowerCase().replace(/[^a-ząćęłńóśźż0-9-]/g, "");
+  }
+
+  function formatTimestamp(value) {
+    if (!value) return "—";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("pl-PL");
+  }
+
+  function element(tag, className = "", text = "") {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== "") node.textContent = text;
+    return node;
+  }
+
+  function appendMeta(list, label, value) {
+    list.append(element("dt", "", label), element("dd", "", value || "—"));
   }
 
   function updateStats() {
@@ -74,7 +130,14 @@
     const query = $("searchInput").value.trim().toLowerCase();
     const status = $("statusFilter").value.trim().toLowerCase();
     return devices.filter((device) => {
-      const haystack = [device.name, device.device_type, device.status, device.hostname, device.platform]
+      const haystack = [
+        device.name,
+        device.device_type,
+        device.status,
+        device.hostname,
+        device.platform,
+        device.agent_version,
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -85,7 +148,7 @@
   }
 
   function openEditor(device = null) {
-    if (!roleCan("write")) return;
+    if (!roleCan("write") || mutationPending) return;
     $("dialogTitle").textContent = device ? "Edytuj urządzenie" : "Dodaj urządzenie";
     $("deviceId").value = device?.id ?? "";
     $("deviceName").value = device?.name ?? "";
@@ -103,30 +166,36 @@
     emptyState.hidden = visible.length !== 0;
 
     visible.forEach((device) => {
-      const article = document.createElement("article");
-      article.className = "device-card";
+      const article = element("article", "device-card");
       article.dataset.deviceId = String(device.id);
-      const lastSeen = device.last_seen_at ? new Date(device.last_seen_at).toLocaleString("pl-PL") : "—";
-      article.innerHTML = `
-        <header>
-          <div><p class="eyebrow">#${device.id} · ${escapeText(device.device_type)}</p><h3>${escapeText(device.name)}</h3></div>
-          <span class="badge ${statusClass(device.status)}">${escapeText(device.status)}</span>
-        </header>
-        <dl class="meta">
-          <dt>Host</dt><dd>${escapeText(device.hostname || "—")}</dd>
-          <dt>Platforma</dt><dd>${escapeText(device.platform || "—")}</dd>
-          <dt>Agent</dt><dd>${device.agent_id ? "połączony" : "brak"}</dd>
-          <dt>Ostatnio</dt><dd>${escapeText(lastSeen)}</dd>
-        </dl>
-        <div class="card-actions"></div>`;
+
+      const header = element("header");
+      const heading = element("div");
+      heading.append(
+        element("p", "eyebrow", `#${device.id} · ${device.device_type}`),
+        element("h3", "", device.name),
+      );
+      const badge = element("span", `badge ${statusClass(device.status)}`, device.status);
+      header.append(heading, badge);
+
+      const meta = element("dl", "meta");
+      appendMeta(meta, "Host", device.hostname || "—");
+      appendMeta(meta, "Platforma", device.platform || "—");
+      appendMeta(meta, "Agent", device.agent_id ? "połączony" : "brak");
+      appendMeta(meta, "Wersja agenta", device.agent_version || "—");
+      appendMeta(meta, "Ostatnio", formatTimestamp(device.last_seen_at));
+      appendMeta(meta, "Utworzono", formatTimestamp(device.created_at));
+      appendMeta(meta, "Zmieniono", formatTimestamp(device.updated_at));
+
+      const actions = element("div", "card-actions");
       if (roleCan("write")) {
-        const button = document.createElement("button");
+        const button = element("button", "ghost", "Edytuj");
         button.type = "button";
-        button.className = "ghost";
-        button.textContent = "Edytuj";
         button.addEventListener("click", () => openEditor(device));
-        article.querySelector(".card-actions").append(button);
+        actions.append(button);
       }
+
+      article.append(header, meta, actions);
       grid.append(article);
     });
 
@@ -134,19 +203,32 @@
   }
 
   async function loadDevices() {
+    if (!principal) return;
+    const generation = ++loadGeneration;
+    $("refreshBtn").disabled = true;
     setBusy("Ładowanie urządzeń…");
     try {
-      devices = await api("/devices");
+      const nextDevices = await api("/devices");
+      if (generation !== loadGeneration || !principal) return;
+      devices = nextDevices;
       render();
     } catch (error) {
+      if (generation !== loadGeneration) return;
       setBusy(`Nie udało się pobrać urządzeń: ${error.message}`);
-      if (error.status === 401) logout();
+      handleAuthenticatedError("Nie udało się pobrać urządzeń", error);
+    } finally {
+      if (generation === loadGeneration) $("refreshBtn").disabled = false;
     }
   }
 
   async function connect(rawToken) {
-    token = rawToken.trim();
-    if (!token) return;
+    if (connectPending) return;
+    const candidate = rawToken.trim();
+    if (!candidate) return;
+
+    connectPending = true;
+    loginSubmit.disabled = true;
+    token = candidate;
     try {
       principal = await api("/me");
       $("identityName").textContent = principal.name;
@@ -161,6 +243,9 @@
       token = "";
       principal = null;
       toast(`Logowanie nieudane: ${error.message}`);
+    } finally {
+      connectPending = false;
+      loginSubmit.disabled = false;
     }
   }
 
@@ -168,22 +253,28 @@
     token = "";
     principal = null;
     devices = [];
+    loadGeneration += 1;
+    setMutationBusy(false);
     dashboard.hidden = true;
     identity.hidden = true;
     loginCard.hidden = false;
     grid.replaceChildren();
+    setBusy("");
     $("tokenInput").focus();
   }
 
   async function saveDevice(event) {
     event.preventDefault();
-    if (!roleCan("write")) return;
+    if (!roleCan("write") || mutationPending) return;
+
     const id = $("deviceId").value;
     const body = {
       name: $("deviceName").value.trim(),
       device_type: $("deviceType").value.trim(),
       status: $("deviceStatus").value.trim(),
     };
+
+    setMutationBusy(true);
     try {
       if (id) {
         await api(`/devices/${id}`, {
@@ -203,22 +294,28 @@
       dialog.close();
       await loadDevices();
     } catch (error) {
-      toast(`Nie zapisano: ${error.message}`);
+      handleAuthenticatedError("Nie zapisano", error);
+    } finally {
+      setMutationBusy(false);
     }
   }
 
   async function deleteCurrent() {
     const id = $("deviceId").value;
-    if (!id || !roleCan("delete")) return;
+    if (!id || !roleCan("delete") || mutationPending) return;
     const name = $("deviceName").value;
     if (!window.confirm(`Usunąć urządzenie „${name}”?`)) return;
+
+    setMutationBusy(true);
     try {
       await api(`/devices/${id}`, { method: "DELETE" });
       dialog.close();
       toast("Urządzenie usunięte");
       await loadDevices();
     } catch (error) {
-      toast(`Nie usunięto: ${error.message}`);
+      handleAuthenticatedError("Nie usunięto", error);
+    } finally {
+      setMutationBusy(false);
     }
   }
 

@@ -5,9 +5,32 @@ on:
     branches: ["main", "work/**"]
   pull_request: {}
 
+permissions:
+  contents: read
+
+concurrency:
+  group: device-manager-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: device_manager
+          POSTGRES_PASSWORD: device_manager
+          POSTGRES_DB: device_manager
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U device_manager -d device_manager"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout
@@ -18,9 +41,13 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: requirements-dev.txt
 
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: python -m ruff check app.py device_manager tests
 
       - name: Compile check
         run: python -m compileall app.py device_manager tests migrations
@@ -28,7 +55,10 @@ jobs:
       - name: JavaScript syntax check
         run: node --check device_manager/panel/panel.js
 
-      - name: Migration upgrade and rollback
+      - name: Production dependency audit
+        run: python -m pip_audit -r requirements.txt
+
+      - name: SQLite migration upgrade and rollback
         env:
           DATABASE_URL: sqlite:///${{ runner.temp }}/migration-test.db
         run: |
@@ -36,8 +66,35 @@ jobs:
           alembic downgrade base
           alembic upgrade head
 
+      - name: PostgreSQL migration upgrade and rollback
+        env:
+          DATABASE_URL: postgresql+psycopg://device_manager:device_manager@127.0.0.1:5432/device_manager
+        run: |
+          alembic upgrade head
+          python -c "from sqlalchemy import text; from device_manager.database import engine; c=engine.connect(); assert c.execute(text('SELECT 1')).scalar_one() == 1; c.close()"
+          alembic downgrade base
+          alembic upgrade head
+
       - name: Unit and integration tests
-        run: python -m unittest discover -s tests -v
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Install Chromium for E2E
+        run: python -m playwright install --with-deps chromium
+
+      - name: Browser E2E — operator flows and responsive QA
+        env:
+          PYTHONPATH: .
+          E2E_ARTIFACT_DIR: ${{ runner.temp }}/e2e-artifacts
+        run: python tests/e2e_panel.py
+
+      - name: Upload E2E screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: panel-e2e-screenshots
+          path: ${{ runner.temp }}/e2e-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: CLI smoke run
         env:
@@ -55,3 +112,64 @@ jobs:
 
       - name: Admin CLI smoke
         run: python -m device_manager.admin --help
+
+      - name: Docker build
+        run: docker build -t device-manager:ci .
+
+      - name: Docker deployment + restart persistence smoke on PostgreSQL
+        shell: bash
+        env:
+          DATABASE_URL: postgresql+psycopg://device_manager:device_manager@127.0.0.1:5432/device_manager
+        run: |
+          set -euo pipefail
+          container=""
+          cleanup() {
+            if [ -n "${container:-}" ]; then
+              docker rm -f "$container" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+
+          start_container() {
+            container=$(docker run -d --name device-manager-ci --network host \
+              -e RUN_MIGRATIONS=0 \
+              -e DATABASE_URL="$DATABASE_URL" \
+              -e DEVICE_MANAGER_AGENT_ENROLLMENT_TOKEN=ci-enrollment \
+              device-manager:ci)
+
+            ready=0
+            for _ in {1..30}; do
+              if curl -fsS http://127.0.0.1:8000/ready >/dev/null; then
+                ready=1
+                break
+              fi
+              sleep 1
+            done
+            if [ "$ready" -ne 1 ]; then
+              docker logs "$container"
+              exit 1
+            fi
+          }
+
+          start_container
+          test "$(docker exec "$container" id -u)" != "0"
+          curl -fsS http://127.0.0.1:8000/health | grep -q 'ok'
+          curl -fsS http://127.0.0.1:8000/panel | grep -q 'Panel urządzeń'
+          curl -fsS -D /tmp/panel-headers -o /dev/null http://127.0.0.1:8000/panel
+          grep -qi '^Cache-Control: no-store' /tmp/panel-headers
+          grep -qi '^X-Frame-Options: DENY' /tmp/panel-headers
+
+          admin_json=$(docker exec "$container" python -m device_manager.admin create-user --name ci-admin --role admin | head -n 1)
+          admin_token=$(printf '%s' "$admin_json" | python -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+          created=$(curl -fsS -X POST http://127.0.0.1:8000/devices \
+            -H "Authorization: Bearer $admin_token" \
+            -H 'Content-Type: application/json' \
+            --data '{"name":"CI Device","device_type":"Computer","status":"Online"}')
+          device_id=$(printf '%s' "$created" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+
+          docker rm -f "$container" >/dev/null
+          container=""
+          start_container
+
+          curl -fsS http://127.0.0.1:8000/devices/$device_id \
+            -H "Authorization: Bearer $admin_token" | grep -q 'CI Device'

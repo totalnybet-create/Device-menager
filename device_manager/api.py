@@ -31,7 +31,6 @@ from .schemas import (
 from .security import AttemptLimiter
 from .service import DeviceNotFoundError, DeviceService
 
-
 PANEL_DIR = Path(__file__).with_name("panel")
 PANEL_CSP = (
     "default-src 'self'; "
@@ -43,6 +42,14 @@ PANEL_CSP = (
     "base-uri 'none'; "
     "frame-ancestors 'none'; "
     "form-action 'self'"
+)
+SENSITIVE_NO_STORE_PATHS = frozenset(
+    {
+        "/panel",
+        "/me",
+        "/agents/register",
+        "/agents/heartbeat",
+    }
 )
 
 
@@ -84,6 +91,22 @@ def create_app(
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=()",
+        )
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+
+        path = request.url.path
+        if path in SENSITIVE_NO_STORE_PATHS or path == "/devices" or path.startswith("/devices/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+
+        if request.url.scheme == "https":
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
         return response
 
     def get_session(request: Request) -> Generator[Session, None, None]:
