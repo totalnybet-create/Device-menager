@@ -31,7 +31,6 @@ from .schemas import (
 from .security import AttemptLimiter
 from .service import DeviceNotFoundError, DeviceService
 
-
 PANEL_DIR = Path(__file__).with_name("panel")
 PANEL_CSP = (
     "default-src 'self'; "
