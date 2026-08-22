@@ -277,7 +277,10 @@ public final class MainActivity extends Activity {
         Uri uri = Uri.parse(baseUrl);
         String host = uri.getHost() == null ? baseUrl : uri.getHost();
         serverLabel.setText("Device Manager · " + host);
-        webView.loadUrl(baseUrl + "/panel");
+        String panelUrl = DEFAULT_SERVER.equalsIgnoreCase(baseUrl)
+                ? baseUrl + "/"
+                : baseUrl + "/panel";
+        webView.loadUrl(panelUrl);
     }
 
     private String normalizeServerUrl(String raw) {
