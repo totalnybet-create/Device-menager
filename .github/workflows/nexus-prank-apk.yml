@@ -74,14 +74,16 @@ jobs:
           unzip -l "$APK" | grep -q 'assets/index.html'
           unzip -l "$APK" | grep -q 'assets/assets/'
           mkdir -p nexus-prank-dist
-          cp "$APK" nexus-prank-dist/Nexus-Prank-v1.1.1.apk
+          cp "$APK" nexus-prank-dist/Nexus-Prank-v1.1.2.apk
           "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$APK" | tee nexus-prank-dist/apk-badging.txt
-          sha256sum nexus-prank-dist/Nexus-Prank-v1.1.1.apk | tee nexus-prank-dist/SHA256SUMS.txt
+          grep -q "versionName='1.1.2'" nexus-prank-dist/apk-badging.txt
+          grep -q "launchable-activity: name='pl.siedlar.nexusprank.GuardActivity'" nexus-prank-dist/apk-badging.txt
+          sha256sum nexus-prank-dist/Nexus-Prank-v1.1.2.apk | tee nexus-prank-dist/SHA256SUMS.txt
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Nexus-Prank-APK-v1.1.1
+          name: Nexus-Prank-APK-v1.1.2
           path: nexus-prank-dist/
           if-no-files-found: error
           retention-days: 14
@@ -96,5 +98,5 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add dist/nexus-prank
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m 'build(nexus): publish verified v1.1.1 APK [skip ci]'
+          git commit -m 'build(nexus): publish verified v1.1.2 APK [skip ci]'
           git push origin HEAD:nexus-prank-apk
