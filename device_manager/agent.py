@@ -6,13 +6,12 @@ import os
 import platform
 import socket
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 from uuid import uuid4
 
 import httpx
-
 
 AGENT_VERSION = "0.2.0"
 
