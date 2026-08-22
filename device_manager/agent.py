@@ -14,7 +14,7 @@ from uuid import uuid4
 import httpx
 
 
-AGENT_VERSION = "0.1.0"
+AGENT_VERSION = "0.2.0"
 
 
 def utcnow_iso() -> str:
@@ -28,6 +28,17 @@ def default_state_dir() -> Path:
     return Path.home() / ".device-manager"
 
 
+def _atomic_write_secret(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(value, encoding="utf-8")
+    try:
+        os.chmod(temporary, 0o600)
+    except OSError:
+        pass
+    temporary.replace(path)
+
+
 def load_or_create_agent_id(path: Path) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
@@ -36,9 +47,7 @@ def load_or_create_agent_id(path: Path) -> str:
             return value
 
     value = str(uuid4())
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(value, encoding="utf-8")
-    temporary.replace(path)
+    _atomic_write_secret(path, value)
     return value
 
 
@@ -77,7 +86,9 @@ class AgentClient:
         base_url: str,
         *,
         identity_path: Path | None = None,
+        token_path: Path | None = None,
         queue_path: Path | None = None,
+        enrollment_token: str | None = None,
         timeout: float = 5.0,
         max_retries: int = 3,
         sleep: Callable[[float], None] = time.sleep,
@@ -89,14 +100,24 @@ class AgentClient:
         state_dir = default_state_dir()
         self.base_url = base_url.rstrip("/")
         self.identity_path = identity_path or state_dir / "agent-id"
+        self.token_path = token_path or state_dir / "agent-token"
         self.queue_path = queue_path or state_dir / "pending-heartbeat.json"
+        self.enrollment_token = enrollment_token or os.getenv(
+            "DEVICE_MANAGER_AGENT_ENROLLMENT_TOKEN"
+        )
         self.timeout = timeout
         self.max_retries = max_retries
         self.sleep = sleep
         self.post = post
         self.agent_id = load_or_create_agent_id(self.identity_path)
 
-    def _send(self, path: str, payload: dict[str, str]) -> dict:
+    def _send(
+        self,
+        path: str,
+        payload: dict[str, str],
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> dict:
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries):
@@ -104,6 +125,7 @@ class AgentClient:
                 response = self.post(
                     f"{self.base_url}{path}",
                     json=payload,
+                    headers=headers or {},
                     timeout=self.timeout,
                 )
                 response.raise_for_status()
@@ -121,11 +143,26 @@ class AgentClient:
         assert last_error is not None
         raise last_error
 
+    def _load_agent_token(self) -> str | None:
+        if not self.token_path.exists():
+            return None
+        value = self.token_path.read_text(encoding="utf-8").strip()
+        return value or None
+
     def register(self) -> dict:
-        return self._send(
+        if not self.enrollment_token:
+            raise RuntimeError("agent enrollment token is required for registration")
+
+        result = self._send(
             "/agents/register",
             collect_registration(self.agent_id),
+            headers={"X-Agent-Enrollment-Token": self.enrollment_token},
         )
+        token = result.get("agent_token")
+        if not isinstance(token, str) or not token:
+            raise RuntimeError("registration response did not contain agent token")
+        _atomic_write_secret(self.token_path, token)
+        return result
 
     def _queue_heartbeat(self, payload: dict[str, str]) -> None:
         self.queue_path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,19 +179,38 @@ class AgentClient:
         except (json.JSONDecodeError, OSError):
             return None
 
+    def _heartbeat_headers(self) -> dict[str, str]:
+        token = self._load_agent_token()
+        if token is None:
+            self.register()
+            token = self._load_agent_token()
+        if token is None:
+            raise RuntimeError("agent token is unavailable after registration")
+        return {"Authorization": f"Bearer {token}"}
+
+    def _send_heartbeat(self, payload: dict[str, str]) -> dict:
+        try:
+            return self._send(
+                "/agents/heartbeat",
+                payload,
+                headers=self._heartbeat_headers(),
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 401 or not self.enrollment_token:
+                raise
+            self.register()
+            return self._send(
+                "/agents/heartbeat",
+                payload,
+                headers=self._heartbeat_headers(),
+            )
+
     def flush_pending(self) -> dict | None:
         payload = self._load_pending_heartbeat()
         if payload is None:
             return None
 
-        try:
-            result = self._send("/agents/heartbeat", payload)
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code != 404:
-                raise
-            self.register()
-            result = self._send("/agents/heartbeat", payload)
-
+        result = self._send_heartbeat(payload)
         self.queue_path.unlink(missing_ok=True)
         return result
 
@@ -164,11 +220,8 @@ class AgentClient:
 
         payload = collect_heartbeat(self.agent_id)
         try:
-            return self._send("/agents/heartbeat", payload)
+            return self._send_heartbeat(payload)
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                self.register()
-                return self._send("/agents/heartbeat", payload)
             if exc.response.status_code >= 500:
                 self._queue_heartbeat(payload)
             raise
