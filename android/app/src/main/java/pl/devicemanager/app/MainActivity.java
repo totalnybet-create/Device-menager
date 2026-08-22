@@ -22,7 +22,6 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.net.InetAddress;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
@@ -107,7 +106,7 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(true);
-        webView.setWebContentsDebuggingEnabled(false);
+        WebView.setWebContentsDebuggingEnabled(false);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -261,17 +260,32 @@ public final class MainActivity extends Activity {
 
     private boolean isPrivateOrLocalHost(String host) {
         String lower = host.toLowerCase(Locale.ROOT);
-        if (lower.equals("localhost") || lower.endsWith(".local")) {
+        if (lower.equals("localhost") || lower.endsWith(".local") || lower.equals("::1")) {
             return true;
         }
-        try {
-            InetAddress address = InetAddress.getByName(host);
-            return address.isLoopbackAddress()
-                    || address.isSiteLocalAddress()
-                    || address.isLinkLocalAddress();
-        } catch (Exception ignored) {
+
+        String[] parts = lower.split("\\.");
+        if (parts.length != 4) {
             return false;
         }
+
+        int[] octets = new int[4];
+        try {
+            for (int i = 0; i < 4; i++) {
+                octets[i] = Integer.parseInt(parts[i]);
+                if (octets[i] < 0 || octets[i] > 255) {
+                    return false;
+                }
+            }
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+
+        return octets[0] == 10
+                || octets[0] == 127
+                || (octets[0] == 192 && octets[1] == 168)
+                || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
+                || (octets[0] == 169 && octets[1] == 254);
     }
 
     private int dp(int value) {
