@@ -69,6 +69,14 @@ class HealthRead(BaseModel):
     status: str
 
 
+class UserPrincipalRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    role: str
+
+
 class AgentRegistration(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
