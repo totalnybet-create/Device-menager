@@ -46,3 +46,6 @@ jobs:
 
       - name: Agent CLI smoke
         run: python -m device_manager.agent --help
+
+      - name: Admin CLI smoke
+        run: python -m device_manager.admin --help
