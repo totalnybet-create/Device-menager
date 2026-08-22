@@ -1,1 +1,1 @@
-d4e2cd36e8a82fd96e62fba2788d13e0ec20bd15f1fe53248f8272c9dbeb851c  nexus-prank-dist/Nexus-Prank-v1.0.0.apk
+0249bce393a0a72189187ac07ea433aaff405cad7aa584dd06811ed3172bb273  nexus-prank-dist/Nexus-Prank-v1.1.0.apk
