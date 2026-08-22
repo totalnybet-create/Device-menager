@@ -10,6 +10,10 @@ on:
       - '.github/workflows/nexus-prank-apk.yml'
   workflow_dispatch:
 
+concurrency:
+  group: nexus-prank-apk-build
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
