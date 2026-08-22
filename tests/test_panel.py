@@ -33,6 +33,11 @@ class PanelTests(unittest.TestCase):
         self.assertIn("default-src 'self'", response.headers["content-security-policy"])
         self.assertEqual(response.headers["x-frame-options"], "DENY")
         self.assertEqual(response.headers["x-content-type-options"], "nosniff")
+        self.assertEqual(response.headers["referrer-policy"], "no-referrer")
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        self.assertIn("camera=()", response.headers["permissions-policy"])
+        self.assertEqual(response.headers["cross-origin-opener-policy"], "same-origin")
+        self.assertEqual(response.headers["cross-origin-resource-policy"], "same-origin")
         html = response.text
         self.assertIn('id="loginForm"', html)
         self.assertIn('id="deviceGrid"', html)
@@ -49,11 +54,14 @@ class PanelTests(unittest.TestCase):
         self.assertIn("javascript", js.headers["content-type"])
         self.assertIn("prefers-reduced-motion", css.text)
         self.assertIn("roleCan", js.text)
+        self.assertIn("REQUEST_TIMEOUT_MS", js.text)
+        self.assertNotIn("innerHTML", js.text)
 
-    def test_me_requires_auth_and_returns_role(self):
+    def test_me_requires_auth_and_returns_role_without_cache(self):
         self.assertEqual(self.client.get("/me").status_code, 401)
         response = self.client.get("/me", headers=self.headers)
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["cache-control"], "no-store")
         self.assertEqual(
             response.json(),
             {"id": response.json()["id"], "name": "panel-operator", "role": "operator"},
