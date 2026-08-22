@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from .models import AgentCredential, AuditEvent, Device, UserPrincipal
 
-
 VALID_ROLES = frozenset({"admin", "operator", "read-only"})
 ROLE_PERMISSIONS = {
     "read-only": frozenset({"devices:read"}),
