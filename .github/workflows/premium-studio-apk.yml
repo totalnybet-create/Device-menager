@@ -1,0 +1,36 @@
+name: Premium Studio APK Public Build
+on:
+  push:
+    branches: [ premium-studio-apk-build ]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Android SDK 35
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build APK
+        working-directory: premium-studio-apk
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Package
+        run: |
+          cp premium-studio-apk/app/build/outputs/apk/debug/app-debug.apk PremiumDesignStudio-1.0.0.apk
+          sha256sum PremiumDesignStudio-1.0.0.apk > PremiumDesignStudio-1.0.0.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PremiumDesignStudio-APK
+          path: |
+            PremiumDesignStudio-1.0.0.apk
+            PremiumDesignStudio-1.0.0.apk.sha256
+          retention-days: 30
