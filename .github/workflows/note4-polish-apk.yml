@@ -1,0 +1,43 @@
+name: Build Note4 Polish APK
+
+on:
+  push:
+    branches:
+      - note4-polish-installer
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Ensure Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Build debug APK
+        working-directory: note4-polish
+        run: gradle clean assembleDebug --stacktrace
+
+      - name: Prepare APK
+        run: cp note4-polish/app/build/outputs/apk/debug/app-debug.apk Note4-Polski.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Note4-Polski-APK
+          path: Note4-Polski.apk
+          if-no-files-found: error

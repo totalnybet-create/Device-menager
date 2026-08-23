@@ -1,0 +1,25 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'pl.siedlar.note4polski'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'pl.siedlar.note4polski'
+        minSdk 21
+        targetSdk 23
+        versionCode 1
+        versionName '1.0'
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+}
