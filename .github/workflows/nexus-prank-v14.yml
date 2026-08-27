@@ -1,0 +1,83 @@
+name: Build Nexus Prank v14 Diagnostics
+
+on:
+  push:
+    branches:
+      - nexus-prank-v14
+    paths:
+      - 'nexus-prank-v12/**'
+      - '.github/workflows/nexus-prank-v14.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build embedded web UI
+        working-directory: nexus-prank-v12/web
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+      - name: Embed web UI in APK assets
+        run: |
+          rm -rf nexus-prank-v12/app/src/main/assets
+          mkdir -p nexus-prank-v12/app/src/main/assets
+          cp -a nexus-prank-v12/web/dist/. nexus-prank-v12/app/src/main/assets/
+          test -s nexus-prank-v12/app/src/main/assets/index.html
+          if grep -R -i -n 'appdeploy' nexus-prank-v12/app/src/main/assets; then
+            echo 'ERROR: AppDeploy reference found in embedded assets'
+            exit 1
+          fi
+          if grep -R -n 'android.permission.INTERNET' nexus-prank-v12/app/src/main/AndroidManifest.xml; then
+            echo 'ERROR: INTERNET permission present'
+            exit 1
+          fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Ensure Android SDK 36
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0"
+      - name: Build APK
+        working-directory: nexus-prank-v12
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Verify APK
+        run: |
+          APK=nexus-prank-v12/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -l "$APK" | tee apk-files.txt
+          grep -q 'assets/index.html' apk-files.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" | tee apk-permissions.txt
+          if grep -q 'android.permission.INTERNET' apk-permissions.txt; then
+            echo 'ERROR: built APK can access Internet'
+            exit 1
+          fi
+          grep -q 'android.permission.CAMERA' apk-permissions.txt
+          grep -q 'android.permission.ACCESS_FINE_LOCATION' apk-permissions.txt
+          grep -q 'android.permission.POST_NOTIFICATIONS' apk-permissions.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee apk-badging.txt
+          grep -q "package: name='pl.siedlar.nexusprank.v14'" apk-badging.txt
+      - name: Prepare artifact
+        run: |
+          cp nexus-prank-v12/app/build/outputs/apk/debug/app-debug.apk Nexus-Prank-v14-DIAGNOSTICS.apk
+          sha256sum Nexus-Prank-v14-DIAGNOSTICS.apk > Nexus-Prank-v14-DIAGNOSTICS.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nexus-Prank-v14-DIAGNOSTICS
+          path: |
+            Nexus-Prank-v14-DIAGNOSTICS.apk
+            Nexus-Prank-v14-DIAGNOSTICS.apk.sha256
+            apk-permissions.txt
+            apk-badging.txt
+          if-no-files-found: error
+          retention-days: 30
