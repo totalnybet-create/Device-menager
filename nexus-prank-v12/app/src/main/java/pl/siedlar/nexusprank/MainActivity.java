@@ -2,9 +2,20 @@ package pl.siedlar.nexusprank;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -15,6 +26,7 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -27,18 +39,37 @@ import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewClientCompat;
 
 import java.io.ByteArrayInputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 public final class MainActivity extends Activity {
     private static final String LOCAL_HOST = "appassets.androidplatform.net";
     private static final String LOCAL_URL = "https://appassets.androidplatform.net/assets/index.html";
     private static final int CAMERA_PERMISSION_CODE = 1201;
+    private static final int INITIAL_PERMISSION_CODE = 1401;
     private static final long BACK_WINDOW_MS = 3500L;
+    private static final String CHANNEL_ID = "nexus_diagnostics";
+    private static final int DIAGNOSTIC_NOTIFICATION_ID = 14001;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WebView webView;
     private PermissionRequest pendingCameraRequest;
     private int backPressCount = 0;
     private long backWindowStart = 0L;
+    private Location latestLocation;
+    private LocationManager locationManager;
+
+    private final LocationListener locationListener = new LocationListener() {
+        @Override
+        public void onLocationChanged(Location location) {
+            latestLocation = location;
+        }
+
+        @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
+        @Override public void onProviderEnabled(String provider) {}
+        @Override public void onProviderDisabled(String provider) {}
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,6 +79,7 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.BLACK);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         hideSystemBars();
+        createNotificationChannel();
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -65,6 +97,7 @@ public final class MainActivity extends Activity {
             settings.setSafeBrowsingEnabled(true);
         }
         WebView.setWebContentsDebuggingEnabled(false);
+        webView.addJavascriptInterface(new NexusBridge(), "NexusNative");
 
         WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
@@ -117,6 +150,133 @@ public final class MainActivity extends Activity {
         getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(visibility ->
                 handler.postDelayed(this::hideSystemBars, 350L)
         );
+
+        handler.postDelayed(this::showInitialConsent, 350L);
+    }
+
+    private void showInitialConsent() {
+        if (isFinishing()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Zgody diagnostyczne")
+                .setMessage("Nexus Prank może użyć aparatu, lokalizacji i powiadomień. Dane diagnostyczne pozostają na tym telefonie i nie są wysyłane do internetu. Po akceptacji Android pokaże systemowe okna zgody.")
+                .setCancelable(false)
+                .setNegativeButton("ANULUJ", (dialog, which) -> finishAndRemoveTask())
+                .setPositiveButton("AKCEPTUJ I KONTYNUUJ", (dialog, which) -> requestInitialPermissions())
+                .show();
+    }
+
+    private void requestInitialPermissions() {
+        List<String> permissions = new ArrayList<>();
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.CAMERA);
+        }
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+        if (!permissions.isEmpty()) {
+            requestPermissions(permissions.toArray(new String[0]), INITIAL_PERMISSION_CODE);
+        }
+    }
+
+    private void createNotificationChannel() {
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                "Nexus diagnostyka",
+                NotificationManager.IMPORTANCE_DEFAULT
+        );
+        channel.setDescription("Lokalne informacje diagnostyczne Nexus Prank");
+        manager.createNotificationChannel(channel);
+    }
+
+    private void startLocationCapture() {
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        try {
+            Location gps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            Location network = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            latestLocation = newer(gps, network);
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, locationListener, Looper.getMainLooper());
+            } else if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 0f, locationListener, Looper.getMainLooper());
+            }
+            handler.postDelayed(this::stopLocationCapture, 26000L);
+        } catch (SecurityException ignored) {
+        }
+    }
+
+    private Location newer(Location a, Location b) {
+        if (a == null) return b;
+        if (b == null) return a;
+        return a.getTime() >= b.getTime() ? a : b;
+    }
+
+    private void stopLocationCapture() {
+        if (locationManager != null) {
+            try {
+                locationManager.removeUpdates(locationListener);
+            } catch (SecurityException ignored) {
+            }
+        }
+    }
+
+    private int getBatteryPercent() {
+        Intent battery = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if (battery == null) return -1;
+        int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+        if (level < 0 || scale <= 0) return -1;
+        return Math.round(level * 100f / scale);
+    }
+
+    private String getLocationText() {
+        Location location = latestLocation;
+        if (location == null) return "brak aktualnego fixu";
+        return String.format(Locale.US, "%.5f, %.5f", location.getLatitude(), location.getLongitude());
+    }
+
+    private void showDiagnosticNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        int battery = getBatteryPercent();
+        String batteryText = battery >= 0 ? battery + "%" : "brak danych";
+        String gps = getLocationText();
+        String device = Build.MANUFACTURER + " " + Build.MODEL;
+        String android = "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")";
+        String details = "Bateria: " + batteryText + "\nGPS: " + gps + "\nUrządzenie: " + device + "\nSystem: " + android;
+
+        Notification notification = new Notification.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_menu_compass)
+                .setContentTitle("Nexus Prank — diagnostyka")
+                .setContentText("Bateria " + batteryText + " • GPS " + gps)
+                .setStyle(new Notification.BigTextStyle().bigText(details))
+                .setAutoCancel(true)
+                .build();
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        manager.notify(DIAGNOSTIC_NOTIFICATION_ID, notification);
+    }
+
+    private final class NexusBridge {
+        @JavascriptInterface
+        public void prankStarted() {
+            runOnUiThread(() -> {
+                startLocationCapture();
+                handler.postDelayed(MainActivity.this::showDiagnosticNotification, 18000L);
+            });
+        }
     }
 
     private WebResourceResponse blockedResponse() {
@@ -161,15 +321,14 @@ public final class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode != CAMERA_PERMISSION_CODE || pendingCameraRequest == null) {
-            return;
-        }
-        PermissionRequest request = pendingCameraRequest;
-        pendingCameraRequest = null;
-        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-        } else {
-            request.deny();
+        if (requestCode == CAMERA_PERMISSION_CODE && pendingCameraRequest != null) {
+            PermissionRequest request = pendingCameraRequest;
+            pendingCameraRequest = null;
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+            } else {
+                request.deny();
+            }
         }
     }
 
@@ -222,6 +381,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        stopLocationCapture();
         if (pendingCameraRequest != null) {
             pendingCameraRequest.deny();
             pendingCameraRequest = null;
