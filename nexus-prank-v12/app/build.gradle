@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace 'pl.siedlar.nexusprank'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId 'pl.siedlar.nexusprank.v13'
         minSdk 26
-        targetSdk 35
+        targetSdk 36
         versionCode 13
         versionName '13.0'
     }
