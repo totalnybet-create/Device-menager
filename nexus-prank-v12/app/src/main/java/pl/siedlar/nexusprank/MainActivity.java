@@ -267,8 +267,8 @@ public final class MainActivity extends Activity {
         String batteryText = battery >= 0 ? battery + "%" : "brak danych";
         String gps = getLocationText();
         String device = Build.MANUFACTURER + " " + Build.MODEL;
-        String android = "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")";
-        String details = "Bateria: " + batteryText + "\nGPS: " + gps + "\nUrządzenie: " + device + "\nSystem: " + android;
+        String androidVersion = "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")";
+        String details = "Bateria: " + batteryText + "\nGPS: " + gps + "\nUrządzenie: " + device + "\nSystem: " + androidVersion;
 
         Notification notification = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
