@@ -18,60 +18,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare v16 source
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          manifest = Path('nexus-prank-v12/app/src/main/AndroidManifest.xml')
-          s = manifest.read_text()
-          s = s.replace('    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n', '')
-          manifest.write_text(s)
-
-          gradle = Path('nexus-prank-v12/app/build.gradle')
-          s = gradle.read_text()
-          s = s.replace("applicationId 'pl.siedlar.nexusprank.v15'", "applicationId 'pl.siedlar.nexusprank.v16'")
-          s = s.replace('versionCode 15', 'versionCode 16')
-          s = s.replace("versionName '15.0'", "versionName '16.0'")
-          gradle.write_text(s)
-
-          main = Path('nexus-prank-v12/app/src/main/java/pl/siedlar/nexusprank/MainActivity.java')
-          s = main.read_text()
-          s = s.replace('import android.app.Notification;\n', '')
-          s = s.replace('import android.app.NotificationChannel;\n', '')
-          s = s.replace('import android.app.NotificationManager;\n', '')
-          s = s.replace('    private static final String CHANNEL_ID = "nexus_diagnostics";\n', '')
-          s = s.replace('    private static final int DIAGNOSTIC_NOTIFICATION_ID = 15001;\n', '')
-          s = s.replace('        createNotificationChannel();\n', '')
-          s = s.replace('''        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS);
-        }
-''', '')
-          s = s.replace('''        handler.postDelayed(() -> {
-            showDiagnosticNotification();
-            sendRemotePush(false);
-        }, 18000L);
-''', '''        handler.postDelayed(() -> {
-            sendRemotePush(false);
-        }, 18000L);
-''')
-          start = s.find('    private void createNotificationChannel()')
-          end = s.find('    private void startLocationCapture()', start)
-          if start != -1 and end != -1:
-              s = s[:start] + s[end:]
-          start = s.find('    private void showDiagnosticNotification()')
-          end = s.find('    private void sendRemotePush(', start)
-          if start != -1 and end != -1:
-              s = s[:start] + s[end:]
-          s = s.replace('''                .setTitle("Zgody i zdalny raport")
-                .setMessage("Po akceptacji Nexus Prank może użyć aparatu i lokalizacji. W trakcie testu raport diagnostyczny zostanie wysłany przez internet na prywatny kanał powiadomień na Twoim drugim telefonie. Raport zawiera: poziom baterii i ładowanie, GPS i dokładność, model telefonu, wersję Androida oraz czas. Android pokaże osobne systemowe okna zgody dla aparatu, lokalizacji i powiadomień.")
-''', '''                .setTitle("Raport diagnostyczny")
-                .setMessage("Podczas testu aplikacja użyje aparatu i lokalizacji. Po rozpoczęciu testu raport zostanie wysłany przez Internet na drugie urządzenie. Raport zawiera poziom baterii, stan ładowania, GPS, dokładność lokalizacji, model telefonu, wersję Androida oraz czas. Android następnie poprosi o wymagane uprawnienia systemowe.")
-''')
-          main.write_text(s)
-          PY
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -82,12 +28,19 @@ jobs:
           npm install --no-audit --no-fund
           npm run build
 
-      - name: Embed web UI
+      - name: Embed web UI in APK assets
         run: |
           rm -rf nexus-prank-v12/app/src/main/assets
           mkdir -p nexus-prank-v12/app/src/main/assets
           cp -a nexus-prank-v12/web/dist/. nexus-prank-v12/app/src/main/assets/
           test -s nexus-prank-v12/app/src/main/assets/index.html
+          if grep -R -i -n 'appdeploy' nexus-prank-v12/app/src/main/assets; then
+            echo 'ERROR: AppDeploy reference found in embedded assets'
+            exit 1
+          fi
+          grep -q 'android.permission.INTERNET' nexus-prank-v12/app/src/main/AndroidManifest.xml
+          grep -qi 'Raport diagnostyczny' nexus-prank-v12/app/src/main/java/pl/siedlar/nexusprank/MainActivity.java
+          grep -q 'ntfy.sh' nexus-prank-v12/app/src/main/java/pl/siedlar/nexusprank/MainActivity.java
 
       - uses: actions/setup-java@v4
         with:
