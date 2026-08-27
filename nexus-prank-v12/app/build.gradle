@@ -7,11 +7,11 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'pl.siedlar.nexusprank.v12'
+        applicationId 'pl.siedlar.nexusprank.v13'
         minSdk 26
         targetSdk 35
-        versionCode 12
-        versionName '12.0'
+        versionCode 13
+        versionName '13.0'
     }
 
     buildTypes {
@@ -19,4 +19,8 @@ android {
             minifyEnabled false
         }
     }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.17.0'
 }
