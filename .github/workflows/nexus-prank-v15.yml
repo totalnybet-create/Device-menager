@@ -36,7 +36,7 @@ jobs:
             exit 1
           fi
           grep -q 'android.permission.INTERNET' nexus-prank-v12/app/src/main/AndroidManifest.xml
-          grep -q 'Zdalny raport' nexus-prank-v12/app/src/main/java/pl/siedlar/nexusprank/MainActivity.java
+          grep -qi 'zdalny raport' nexus-prank-v12/app/src/main/java/pl/siedlar/nexusprank/MainActivity.java
           grep -q 'ntfy.sh' nexus-prank-v12/app/src/main/java/pl/siedlar/nexusprank/MainActivity.java
       - uses: actions/setup-java@v4
         with:
