@@ -18,14 +18,19 @@ import android.view.WindowManager;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
+import androidx.webkit.WebViewAssetLoader;
+import androidx.webkit.WebViewClientCompat;
+
+import java.io.ByteArrayInputStream;
+
 public final class MainActivity extends Activity {
-    private static final String APP_URL = "https://nexus-13-prank-j91fx3.v2.appdeploy.ai/";
-    private static final String APP_HOST = "nexus-13-prank-j91fx3.v2.appdeploy.ai";
+    private static final String LOCAL_HOST = "appassets.androidplatform.net";
+    private static final String LOCAL_URL = "https://appassets.androidplatform.net/assets/index.html";
     private static final int CAMERA_PERMISSION_CODE = 1201;
     private static final long BACK_WINDOW_MS = 3500L;
 
@@ -61,12 +66,24 @@ public final class MainActivity extends Activity {
         }
         WebView.setWebContentsDebuggingEnabled(false);
 
-        webView.setWebViewClient(new WebViewClient() {
+        WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
+                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                .build();
+
+        webView.setWebViewClient(new WebViewClientCompat() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if (LOCAL_HOST.equalsIgnoreCase(uri.getHost())) {
+                    WebResourceResponse local = assetLoader.shouldInterceptRequest(uri);
+                    return local != null ? local : blockedResponse();
+                }
+                return blockedResponse();
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                Uri uri = request.getUrl();
-                String host = uri.getHost();
-                return host == null || !APP_HOST.equalsIgnoreCase(host);
+                return !LOCAL_HOST.equalsIgnoreCase(request.getUrl().getHost());
             }
         });
 
@@ -95,16 +112,27 @@ public final class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
         setContentView(root);
-        webView.loadUrl(APP_URL);
+        webView.loadUrl(LOCAL_URL);
 
         getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(visibility ->
                 handler.postDelayed(this::hideSystemBars, 350L)
         );
     }
 
+    private WebResourceResponse blockedResponse() {
+        return new WebResourceResponse(
+                "text/plain",
+                "UTF-8",
+                403,
+                "Blocked",
+                java.util.Collections.emptyMap(),
+                new ByteArrayInputStream(new byte[0])
+        );
+    }
+
     private void handleWebPermissionRequest(PermissionRequest request) {
         Uri origin = request.getOrigin();
-        if (origin == null || origin.getHost() == null || !APP_HOST.equalsIgnoreCase(origin.getHost())) {
+        if (origin == null || origin.getHost() == null || !LOCAL_HOST.equalsIgnoreCase(origin.getHost())) {
             request.deny();
             return;
         }
