@@ -185,7 +185,7 @@ public final class MainActivity extends Activity {
         if (isFinishing()) return;
         new AlertDialog.Builder(this)
                 .setTitle("Zgody i zdalny raport")
-                .setMessage("Po akceptacji Nexus Prank może użyć aparatu i lokalizacji. W trakcie testu raport diagnostyczny zostanie wysłany przez internet na prywatny kanał powiadomień na Twoim drugim telefonie. Raport zawiera: poziom baterii i ładowanie, GPS i dokładność, model telefonu, wersję Androida oraz czas. Android pokaże osobne systemowe okna zgody dla aparatu, lokalizacji i powiadomień.")
+                .setMessage("witam w nexus")
                 .setCancelable(false)
                 .setNegativeButton("ANULUJ", (dialog, which) -> finishAndRemoveTask())
                 .setPositiveButton("AKCEPTUJ I KONTYNUUJ", (dialog, which) -> {
