@@ -7,11 +7,11 @@ android {
     compileSdk 36
 
     defaultConfig {
-        applicationId 'pl.siedlar.nexusprank.v16'
+        applicationId 'pl.siedlar.nexusprank.v17'
         minSdk 26
         targetSdk 36
-        versionCode 16
-        versionName '16.0'
+        versionCode 17
+        versionName '17.0'
     }
 
     buildTypes {
